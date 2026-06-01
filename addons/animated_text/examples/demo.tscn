@@ -1,8 +1,10 @@
-[gd_scene load_steps=2 format=3 uid="uid://batdemoscene2"]
+[gd_scene format=3 uid="uid://cm7x4dwii8qsl"]
 
-[ext_resource type="Script" path="res://addons/animated_text/examples/demo.gd" id="1_demo"]
+[ext_resource type="Script" uid="uid://b28jg24a2lbye" path="res://addons/animated_text/examples/demo.gd" id="1_demo"]
 
-[node name="Demo" type="Control"]
+[node name="Demo" type="Control" unique_id=662815350]
+layout_mode = 3
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2

@@ -14,8 +14,8 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="AnimatedText (RichTextLabel) Demo"
-config/version="2.0.0"
+config/name="AnimatedText Demo"
+config/version="2.1.0"
 run/main_scene="res://addons/animated_text/examples/demo.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 

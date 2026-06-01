@@ -12,7 +12,7 @@ func _init() -> void:
 
 func apply(mod: CharMod, time: float, idx: int, _total: int) -> void:
 	var phase := (time - idx * char_delay) * speed
-	var f := phase - floor(phase)         # 0..1 within this char's cycle
+	var f: float = phase - floor(phase)         # 0..1 within this char's cycle
 	# Only hop during the first half of the cycle, rest otherwise.
-	var h := sin(f * PI) if f < 0.5 else 0.0
+	var h: float = sin(f * PI) if f < 0.5 else 0.0
 	mod.offset.y -= h * height

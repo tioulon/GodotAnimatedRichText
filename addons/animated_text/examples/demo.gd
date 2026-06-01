@@ -23,22 +23,17 @@ func _make_demos() -> void:
 	var rainbow := OnRainbow.new()
 	var wave := OnWave.new(); wave.amplitude = 2.5; wave.speed = 3.0
 
-	# 1 — Typewriter dialog with built-in theme outline (per-char outline)
+	# 1 — Typewriter dialog
 	var l1 := _spawn(Vector2(40, 60),
 		"[b]Hero:[/b] It's dangerous to go alone!",
 		InTypewriter.new(), OutFade.new(), [])
-	OutlineHelper.apply_theme(l1, Color.BLACK, 4)
 	l1.stagger_delay = 0.035
 	l1.in_duration = 0.05
 
-	# 2 — Wave-in + rainbow + wave-bob, with the UNIFIED outline shader (two-tone top)
+	# 2 — Wave-in + rainbow
 	var l2 := _spawn(Vector2(40, 120),
 		"[b]RAINBOW QUEST[/b]",
 		InWave.new(), OutScale.new(), [rainbow, wave])
-	OutlineHelper.apply(l2, {
-		"thickness": 3.0, "color": Color.BLACK,
-		"top_color": Color(1, 1, 1, 0.9), "top_height": 1.0,
-	})
 	l2.add_theme_font_size_override("normal_font_size", 28)
 
 	# 3 — Scale-in + pulse
