@@ -76,8 +76,18 @@ enum Stagger {
 @export var out_animation: OutAnimation
 
 @export_group("Ongoing Animations")
-## Stackable continuous effects (applied additively, in order).
-@export var ongoing_animations: Array[OngoingAnimation] = []
+## A reusable set of ongoing effects (a saved .tres you can share across nodes).
+## Merged with the inline `ongoing_animations` below — set provides the shared
+## base, inline adds per-node extras.
+@export var ongoing_set: OngoingAnimationSet:
+	set(v):
+		ongoing_set = v
+		_rebuild_ongoing()
+## Stackable continuous effects on THIS node (applied additively, in order).
+@export var ongoing_animations: Array[OngoingAnimation] = []:
+	set(v):
+		ongoing_animations = v
+		_rebuild_ongoing()
 
 # ═══════════════════════════════════════════════════════════════════
 # Exports — Timing
@@ -167,6 +177,45 @@ var _wait_cumulative_out: PackedFloat32Array = PackedFloat32Array()
 var _mod: CharMod = CharMod.new()
 var _tmp: CharMod = CharMod.new()
 
+## Merged list of ongoing animations (ongoing_set.animations + ongoing_animations).
+var _ongoing: Array[OngoingAnimation] = []
+
+## Rebuild the merged ongoing list from the shared set + the inline array.
+func _rebuild_ongoing() -> void:
+	_ongoing.clear()
+	if ongoing_set and ongoing_set.animations:
+		for a in ongoing_set.animations:
+			if a: _ongoing.append(a)
+	for a in ongoing_animations:
+		if a: _ongoing.append(a)
+
+## Editor-only signature of everything that affects the merged list and tag
+## parsing. When it changes, we rebuild + rewrap. Cheap to compute each frame.
+var _editor_sig: String = ""
+
+func _build_editor_sig() -> String:
+	var parts := PackedStringArray()
+	parts.append(animated_text)
+	parts.append(str(in_stagger) + "," + str(out_stagger))
+	# include the set + inline animations: identity, tag, strength
+	var lists := [ongoing_set.animations if ongoing_set else [], ongoing_animations]
+	for lst in lists:
+		for a in lst:
+			if a:
+				parts.append("%d|%s|%s" % [a.get_instance_id(), a.bbcode_tag, str(a.strength)])
+			else:
+				parts.append("nil")
+	return "\u0001".join(parts)
+
+## Called every editor frame: refresh only when something actually changed.
+func _editor_live_refresh() -> void:
+	var sig := _build_editor_sig()
+	if sig != _editor_sig:
+		_editor_sig = sig
+		_rebuild_ongoing()
+		_rewrap()          # re-parses tags + waits and re-wraps the text
+		queue_redraw()
+
 # Preview bookkeeping
 var _pv_phase: int = 0
 var _pv_acc: float = 0.0
@@ -178,6 +227,7 @@ func _ready() -> void:
 	bbcode_enabled = true
 	_install_effect()
 	_ready_done = true
+	_rebuild_ongoing()
 	_rewrap()
 
 	if Engine.is_editor_hint():
@@ -200,6 +250,7 @@ func _ready() -> void:
 func _enter_tree() -> void:
 	if _ready_done:
 		_install_effect()
+		_rebuild_ongoing()
 		_rewrap_needed = true
 
 func _install_effect() -> void:
@@ -230,6 +281,10 @@ func _process(delta: float) -> void:
 		_build_order()
 
 	if Engine.is_editor_hint():
+		# Sub-resources (the ongoing set, an animation's bbcode_tag, etc.) can be
+		# edited without firing this node's setters, leaving us stale. Cheaply
+		# detect such changes each editor frame and refresh only when needed.
+		_editor_live_refresh()
 		if preview:
 			_tick_preview(delta)
 		return
@@ -261,7 +316,7 @@ func _process(delta: float) -> void:
 		Phase.IN, Phase.OUT:
 			needs_redraw = true
 		Phase.HOLD:
-			needs_redraw = run_ongoing and ongoing_animations.size() > 0
+			needs_redraw = run_ongoing and _ongoing.size() > 0
 		Phase.IDLE:
 			needs_redraw = false
 	if needs_redraw:
@@ -279,7 +334,7 @@ func play_in() -> void:
 		# No entrance: jump straight to the resting/holding state, ongoing only.
 		_anim_t = 0.0
 		_loop_t = 0.0
-		_phase  = Phase.HOLD if (run_ongoing and ongoing_animations.size() > 0) else Phase.IDLE
+		_phase  = Phase.HOLD if (run_ongoing and _ongoing.size() > 0) else Phase.IDLE
 		in_finished.emit()
 		queue_redraw()
 		return
@@ -303,7 +358,7 @@ func show_now() -> void:
 	modulate.a = 1.0
 	_anim_t = 0.0
 	_loop_t = 0.0
-	_phase  = Phase.HOLD if (run_ongoing and ongoing_animations.size() > 0) else Phase.IDLE
+	_phase  = Phase.HOLD if (run_ongoing and _ongoing.size() > 0) else Phase.IDLE
 	queue_redraw()
 
 func hide_now() -> void:
@@ -357,7 +412,7 @@ func _parse_custom_tags(s: String) -> String:
 
 	# Which tag names are "ours" (declared by ongoing animations)?
 	var anim_tags := {}
-	for a in ongoing_animations:
+	for a in _ongoing:
 		if a and not a.bbcode_tag.is_empty():
 			anim_tags[a.bbcode_tag] = true
 
@@ -519,7 +574,7 @@ func _compute_mod(m: CharMod, idx: int) -> void:
 		Phase.IDLE:
 			if _hidden:
 				m.alpha = 0.0
-			elif run_ongoing and ongoing_animations.size() > 0:
+			elif run_ongoing and _ongoing.size() > 0:
 				_compute_ongoing(m, idx)
 
 
@@ -528,7 +583,7 @@ func _compute_in(m: CharMod, idx: int) -> void:
 
 	# Glyph hasn't started its entrance yet.
 	if t <= 0.0:
-		if ongoing_during_in and run_ongoing and ongoing_animations.size() > 0:
+		if ongoing_during_in and run_ongoing and _ongoing.size() > 0:
 			# Loop is "already happening": apply ongoing even before entrance.
 			_compute_ongoing(m, idx)
 			# But keep it hidden until its stagger window opens, if requested.
@@ -544,7 +599,7 @@ func _compute_in(m: CharMod, idx: int) -> void:
 
 	# ...then mix the ongoing loop on top for the WHOLE entrance, so it looks
 	# like the wave/pulse/float was running before the text appeared.
-	if run_ongoing and ongoing_animations.size() > 0:
+	if run_ongoing and _ongoing.size() > 0:
 		if ongoing_during_in or t >= 1.0:
 			_compute_ongoing(m, idx)
 
@@ -557,11 +612,11 @@ func _compute_out(m: CharMod, idx: int) -> void:
 	var t := _glyph_t(idx, out_duration)
 	if out_animation:
 		out_animation.apply(m, t, idx, _total)
-	if ongoing_during_out and run_ongoing and ongoing_animations.size() > 0:
+	if ongoing_during_out and run_ongoing and _ongoing.size() > 0:
 		_compute_ongoing(m, idx)
 
 func _compute_ongoing(m: CharMod, idx: int) -> void:
-	for anim in ongoing_animations:
+	for anim in _ongoing:
 		if anim and anim.strength > 0.0:
 			# Region scoping: if this animation has a tag, only apply it to
 			# glyphs inside that [tag]...[/tag] region.

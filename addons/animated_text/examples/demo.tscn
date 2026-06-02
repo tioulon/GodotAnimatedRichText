@@ -1,8 +1,8 @@
-[gd_scene format=3 uid="uid://cm7x4dwii8qsl"]
+[gd_scene format=3 uid="uid://cmovkgt5dn5s6"]
 
-[ext_resource type="Script" uid="uid://b28jg24a2lbye" path="res://addons/animated_text/examples/demo.gd" id="1_demo"]
+[ext_resource type="Script" uid="uid://bjgiw3oapnhfq" path="res://addons/animated_text/examples/demo.gd" id="1_demo"]
 
-[node name="Demo" type="Control" unique_id=662815350]
+[node name="Demo" type="Control" unique_id=1535138618]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
