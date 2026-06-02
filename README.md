@@ -20,7 +20,7 @@ label.play_in()
 ## Features
 
 - **Three separate animation layers** — `in`, `out`, and stackable `ongoing`.
-- **36 built-in animations** — 16 entrances, 5 exits, 15 continuous effects.
+- **50 built-in animations** — 21 entrances, 8 exits, 21 continuous effects.
 - **Built on RichTextLabel** — all theme overrides + full BBCode work inside the text.
 - **Translatable** — text runs through `tr()`, and all custom tags are parsed *after* translation.
 - **Inline `[wait=0.5]`** — direction-aware typewriter pauses.
@@ -79,22 +79,33 @@ All animations are `Resource`s you assign in the inspector or create in code
 (`InWave.new()`, etc.). Each in/out animation has an **easing** dropdown and an
 optional custom **curve**.
 
-### In (16)
+### In (21)
 `InFade` · `InTypewriter` · `InSlide` · `InScale` · `InSpin` · `InWave` ·
 `InBounce` · `InDissolve` · `InGlitch` · `InDrop` · `InUnfold` · `InSwirl` ·
-`InStretch` · `InStandUp` · `InZoom` · `InPopColor`
+`InStretch` · `InStandUp` · `InZoom` · `InPopColor` · `InPendulum` · `InSquash` · `InFlip3D` · `InCascade` · `InBlurZoom`
 
-### Out (5)
-`OutFade` · `OutSlide` · `OutScale` · `OutBounce` · `OutTypewriter`
+### Out (8)
+`OutFade` · `OutSlide` · `OutScale` · `OutBounce` · `OutTypewriter` · `OutSpin` · `OutDissolve` · `OutDrop`
 
-### Ongoing (15, stackable)
+### Ongoing (21, stackable)
 `OnWave` · `OnShake` · `OnPulse` · `OnRainbow` · `OnFloat` · `OnJitter` ·
 `OnWobble` · `OnBreathe` · `OnFlicker` · `OnOrbit` · `OnSparkle` · `OnBounce` ·
-`OnSway` · `OnTremor` · `OnColorCycle`
+`OnSway` · `OnTremor` · `OnColorCycle` · `OnSolidColor` · `OnHeartbeat` · `OnSwing` · `OnVibrate` · `OnGlow` · `OnMarquee`
 
 Ongoing effects are applied additively — stack as many as you like. By default
 they also blend *into* the entrance, as if the loop were already playing when
 the text appears (toggle with `ongoing_during_in`).
+
+### Reusable ongoing sets
+Build a set of ongoing effects once and share it across many nodes: create an
+**OngoingAnimationSet** resource (`.tres`), fill its `animations` array, and
+assign it to a node's **`ongoing_set`** property. The node merges the set with
+its own inline `ongoing_animations`, so you get a shared base plus per-node
+extras. Editing the `.tres` updates every node that uses it.
+
+`OnColorCycle` takes an **array of colors** (`colors`) and walks through them
+all, looping seamlessly; `OnSolidColor` applies one flat (optionally pulsing)
+color.
 
 ---
 

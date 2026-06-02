@@ -1,30 +1,30 @@
 ## AnimatedRichLabel — animated text built ON TOP of RichTextLabel.
 ##
 ## Because this IS a RichTextLabel, you get every feature for free:
-##   • All theme overrides (font, font_size, colors, outline, shadow, spacing…)
-##   • Full BBCode ([b], [i], [color], [font], [img], tables, etc.)
-##   • Text wrapping, alignment, scrolling, fit-content, etc.
+##   - All theme overrides (font, font_size, colors, outline, shadow, spacing)
+##   - Full BBCode (bold, italics, color, font, img, tables, etc.)
+##   - Text wrapping, alignment, scrolling, fit-content, etc.
 ##
 ## On top of that it adds per-character entrance / exit / ongoing animations.
 ##
 ## ANIMATION SLOTS (kept separate to avoid confusion):
-##   in_animation        : InAnimation        — plays once on play_in()
-##   out_animation       : OutAnimation       — plays once on play_out()
-##   ongoing_animations  : Array[OngoingAnimation] — loop continuously, stackable
+##   in_animation        - InAnimation        plays once on play_in()
+##   out_animation       - OutAnimation       plays once on play_out()
+##   ongoing_animations  - Array of OngoingAnimation, loop continuously, stackable
 ##
-## CUSTOM INLINE TAGS (parsed AFTER tr(), so fully translatable):
-##   [wait=0.5]      — pause the reveal 0.5s at this point (direction-aware)
-##   [yourtag]…[/]   — scope an ongoing animation to a region (set its
-##                     `bbcode_tag` to "yourtag"); mixes with global ongoing.
+## CUSTOM INLINE TAGS (parsed AFTER tr, so fully translatable):
+##   wait=0.5    pause the reveal 0.5s at this point (direction-aware)
+##   region tag  scope an ongoing animation to a region by setting its
+##               bbcode_tag, then wrapping that part of the text in the tag.
 ##
 ## HOW IT WORKS
 ##   The label wraps its whole text in a custom RichTextEffect. Godot calls back
 ##   per glyph per frame; we apply a precomputed transform. This is the native,
-##   efficient path RichTextLabel uses for [wave]/[shake]/etc.
+##   efficient path RichTextLabel uses for its own glyph effects.
 ##
 ## QUICK START
 ##   var l := AnimatedRichLabel.new()
-##   l.animated_text = "Hello [b]world[/b]!"
+##   l.animated_text = "Hello world!"
 ##   l.in_animation = InFade.new()
 ##   add_child(l)
 ##   l.play_in()
@@ -405,7 +405,7 @@ func _rewrap() -> void:
 ## Handles:
 ##   • animation scope tags  [g]...[/g]  → _tag_ranges["g"] = [{start,end}, ...]
 ##   • wait delays           [wait=0.2]  → _wait_at[char_index] += 0.2
-## Anything else in [brackets] (real BBCode like [b], [color], [wave]) is kept.
+## Anything else in brackets (real BBCode like bold, color, wave) is kept.
 func _parse_custom_tags(s: String) -> String:
 	_tag_ranges.clear()
 	_wait_at.clear()
