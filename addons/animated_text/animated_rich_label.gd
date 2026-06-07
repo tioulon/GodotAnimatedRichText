@@ -150,6 +150,8 @@ enum Stagger {
 # ═══════════════════════════════════════════════════════════════════
 var _phase: Phase = Phase.IDLE
 var _hidden: bool = false     # explicit hide_now() state
+var _paused: bool = false     # pause() freezes the in/out clock
+var _pause_stops_ongoing: bool = true   # whether pause also freezes the loop
 var _anim_t: float = 0.0     # in/out clock
 var _loop_t: float = 0.0     # ongoing clock (continuous, never reset mid-life)
 
@@ -172,6 +174,11 @@ var _wait_at: Dictionary = {}
 ## Cumulative wait before each glyph, in stagger-rank order, per direction.
 var _wait_cumulative_in: PackedFloat32Array = PackedFloat32Array()
 var _wait_cumulative_out: PackedFloat32Array = PackedFloat32Array()
+## Per-character reveal speed multiplier from [spd=N]...[/spd] (default 1.0).
+var _spd: PackedFloat32Array = PackedFloat32Array()
+## Per-glyph base start time (rank spacing modulated by [spd]), per direction.
+var _start_in: PackedFloat32Array = PackedFloat32Array()
+var _start_out: PackedFloat32Array = PackedFloat32Array()
 
 # Pooled scratch objects — zero allocation in the per-glyph hot path
 var _mod: CharMod = CharMod.new()
@@ -289,34 +296,45 @@ func _process(delta: float) -> void:
 			_tick_preview(delta)
 		return
 
+	# When paused, the in/out clock is frozen; the ongoing clock is frozen too
+	# unless pause() was told to keep it running.
+	var anim_running := not _paused
+	var loop_running := not (_paused and _pause_stops_ongoing)
+
 	match _phase:
 		Phase.IN:
-			_anim_t += delta
-			if run_ongoing: _loop_t += delta
-			if _anim_t >= _full_duration(in_duration):
-				_phase = Phase.HOLD if run_ongoing else Phase.IDLE
-				_anim_t = 0.0
-				in_finished.emit()
+			if anim_running:
+				_anim_t += delta
+				if run_ongoing and loop_running: _loop_t += delta
+				if _anim_t >= _full_duration(in_duration):
+					_phase = Phase.HOLD if run_ongoing else Phase.IDLE
+					_anim_t = 0.0
+					in_finished.emit()
+			elif run_ongoing and loop_running:
+				_loop_t += delta
 		Phase.HOLD:
-			_loop_t += delta
+			if loop_running:
+				_loop_t += delta
 		Phase.OUT:
-			_anim_t += delta
-			if ongoing_during_out and run_ongoing: _loop_t += delta
-			if _anim_t >= _full_duration(out_duration):
-				_phase = Phase.IDLE
-				_anim_t = 0.0
-				out_finished.emit()
+			if anim_running:
+				_anim_t += delta
+				if ongoing_during_out and run_ongoing and loop_running: _loop_t += delta
+				if _anim_t >= _full_duration(out_duration):
+					_phase = Phase.IDLE
+					_anim_t = 0.0
+					out_finished.emit()
+			elif ongoing_during_out and run_ongoing and loop_running:
+				_loop_t += delta
 		Phase.IDLE:
 			pass
 
 	# Re-run the per-glyph effect only when something is actually moving.
-	# IN/OUT always move; HOLD only if ongoing effects are present.
 	var needs_redraw := false
 	match _phase:
 		Phase.IN, Phase.OUT:
-			needs_redraw = true
+			needs_redraw = anim_running or loop_running
 		Phase.HOLD:
-			needs_redraw = run_ongoing and _ongoing.size() > 0
+			needs_redraw = run_ongoing and _ongoing.size() > 0 and loop_running
 		Phase.IDLE:
 			needs_redraw = false
 	if needs_redraw:
@@ -329,6 +347,7 @@ func _process(delta: float) -> void:
 func play_in() -> void:
 	if _rewrap_needed: _rewrap()
 	_hidden  = false
+	_paused  = false
 	modulate.a = 1.0   # undo the hide_until_started pre-hide
 	if skip_in_animation:
 		# No entrance: jump straight to the resting/holding state, ongoing only.
@@ -347,6 +366,7 @@ func play_in() -> void:
 func play_out() -> void:
 	if _rewrap_needed: _rewrap()
 	_hidden = false
+	_paused = false
 	_phase  = Phase.OUT
 	_anim_t = 0.0
 	queue_redraw()
@@ -355,6 +375,7 @@ func play_out() -> void:
 func show_now() -> void:
 	if _rewrap_needed: _rewrap()
 	_hidden = false
+	_paused = false
 	modulate.a = 1.0
 	_anim_t = 0.0
 	_loop_t = 0.0
@@ -372,6 +393,24 @@ func stop() -> void:
 
 func restart_ongoing() -> void:
 	_loop_t = 0.0
+
+## Pause the in/out animation where it is.
+##   stop_ongoing (default true): also freeze the ongoing/loop animations.
+##                                pass false to keep them running while paused.
+func pause(stop_ongoing: bool = true) -> void:
+	_paused = true
+	_pause_stops_ongoing = stop_ongoing
+
+## Resume the in/out (and ongoing) animation from where pause() left it.
+func continue_play() -> void:
+	_paused = false
+	queue_redraw()
+
+## Alias for continue_play() ("continue" is a reserved word in GDScript).
+func resume() -> void:
+	continue_play()
+
+func is_paused() -> bool: return _paused
 
 func is_playing_in() -> bool:  return _phase == Phase.IN
 func is_playing_out() -> bool: return _phase == Phase.OUT
@@ -409,6 +448,7 @@ func _rewrap() -> void:
 func _parse_custom_tags(s: String) -> String:
 	_tag_ranges.clear()
 	_wait_at.clear()
+	_spd.resize(0)
 
 	# Which tag names are "ours" (declared by ongoing animations)?
 	var anim_tags := {}
@@ -417,6 +457,8 @@ func _parse_custom_tags(s: String) -> String:
 			anim_tags[a.bbcode_tag] = true
 
 	var open_stack := {}      # tag name → start char index (for nesting per tag)
+	var spd_stack := []       # stack of active speed multipliers (for nesting)
+	var spd_list: Array = []  # per-visible-char speed multiplier
 	var out := ""
 	var ci := 0               # visible character index in the CLEAN string
 	var i := 0
@@ -432,6 +474,16 @@ func _parse_custom_tags(s: String) -> String:
 				if inner.begins_with("wait="):
 					var secs := inner.substr(5).to_float()
 					_wait_at[ci] = _wait_at.get(ci, 0.0) + secs
+					handled = true
+				# [spd=N] ... [/spd] — multiply reveal speed inside the region
+				elif inner.begins_with("spd="):
+					var m := inner.substr(4).to_float()
+					if m <= 0.0: m = 1.0
+					spd_stack.push_back(m)
+					handled = true
+				elif inner == "/spd":
+					if not spd_stack.is_empty():
+						spd_stack.pop_back()
 					handled = true
 				# [tag] / [/tag] for one of our animation tags
 				elif anim_tags.has(inner):
@@ -456,8 +508,14 @@ func _parse_custom_tags(s: String) -> String:
 					continue
 		# Normal visible character.
 		out += c
+		# Record the speed currently in effect for this glyph (innermost wins).
+		spd_list.append(spd_stack.back() if not spd_stack.is_empty() else 1.0)
 		ci += 1
 		i += 1
+	# Commit the speed list as a packed array.
+	_spd.resize(spd_list.size())
+	for k in spd_list.size():
+		_spd[k] = spd_list[k]
 	return out
 
 ## True if glyph `idx` is inside any region of the given tag.
@@ -473,12 +531,39 @@ func _build_order() -> void:
 	_order_in = _make_order(in_stagger)
 	_order_out = _make_order(out_stagger)
 	_orders_dirty = false
+	# Per-glyph base start time (rank spacing, modulated by [spd] regions).
+	_start_in = _make_start_times(_order_in)
+	_start_out = _make_start_times(_order_out)
 	# Waits are direction-aware and only meaningful for the two reading-order
 	# staggers (LEFT_TO_RIGHT / RIGHT_TO_LEFT). For any other stagger, or for
 	# the out animation, waits are ignored (all zero).
 	_wait_cumulative_in = _make_wait_cumulative(in_stagger)
 	_wait_cumulative_out = PackedFloat32Array()
 	_wait_cumulative_out.resize(_total)   # out: always zero (no waits on exit)
+
+## Build each glyph's base start time by walking in rank order and adding
+## stagger_delay / speed for each step, so [spd=N] regions reveal faster/slower.
+func _make_start_times(order: PackedInt32Array) -> PackedFloat32Array:
+	var result := PackedFloat32Array()
+	result.resize(_total)
+	if _total == 0:
+		return result
+	# rank -> glyph index
+	var by_rank := PackedInt32Array()
+	by_rank.resize(_total)
+	for i in _total:
+		var r: int = order[i] if i < order.size() else i
+		r = clampi(r, 0, _total - 1)
+		by_rank[r] = i
+	var acc := 0.0
+	for rank in _total:
+		var gi: int = by_rank[rank]
+		result[gi] = acc
+		# Advance by the spacing for THIS glyph, sped up/slowed by its [spd].
+		var spd: float = _spd[gi] if gi < _spd.size() else 1.0
+		if spd <= 0.0: spd = 1.0
+		acc += stagger_delay / spd
+	return result
 
 ## Build per-glyph cumulative wait (seconds) for a stagger direction.
 ##
@@ -678,24 +763,35 @@ func _glyph_dimensions(_ch: CharFXTransform) -> Vector2:
 # ═══════════════════════════════════════════════════════════════════
 func _glyph_t(idx: int, duration: float) -> float:
 	if duration <= 0.0: return 1.0
-	# Pick the order + wait table for the active phase.
+	# Pick the order + start/wait tables for the active phase.
 	var ap := _pv_to_phase() if (Engine.is_editor_hint() and preview) else _phase
 	var is_out := ap == Phase.OUT
-	var order := _order_out if is_out else _order_in
+	var starts := _start_out if is_out else _start_in
 	var waits := _wait_cumulative_out if is_out else _wait_cumulative_in
-	var rank := order[idx] if idx < order.size() else idx
+	var start := starts[idx] if idx < starts.size() else 0.0
 	var wait := waits[idx] if idx < waits.size() else 0.0
-	var start := rank * stagger_delay + wait
-	return clampf((_anim_t - start) / duration, 0.0, 1.0)
+	# [spd] also shortens/lengthens each glyph's own animation time.
+	var spd: float = _spd[idx] if idx < _spd.size() else 1.0
+	if spd <= 0.0: spd = 1.0
+	var dur := duration / spd
+	return clampf((_anim_t - start - wait) / dur, 0.0, 1.0)
 
 func _full_duration(per_glyph: float) -> float:
 	if _total <= 0: return 0.0
-	# Add the largest cumulative wait for the relevant phase. Out has no waits.
-	var max_wait := 0.0
-	var table := _wait_cumulative_in if per_glyph == in_duration else _wait_cumulative_out
-	for w in table:
-		if w > max_wait: max_wait = w
-	return per_glyph + stagger_delay * maxf(_total - 1, 0) + max_wait
+	var is_in := per_glyph == in_duration
+	var starts := _start_in if is_in else _start_out
+	var waits := _wait_cumulative_in if is_in else _wait_cumulative_out
+	# The phase ends when the last-finishing glyph completes: max over glyphs of
+	# start + wait + its own (speed-adjusted) duration.
+	var longest := 0.0
+	for i in _total:
+		var spd: float = _spd[i] if i < _spd.size() else 1.0
+		if spd <= 0.0: spd = 1.0
+		var s := starts[i] if i < starts.size() else 0.0
+		var w := waits[i] if i < waits.size() else 0.0
+		var finish := s + w + per_glyph / spd
+		if finish > longest: longest = finish
+	return longest
 
 # ═══════════════════════════════════════════════════════════════════
 # Editor preview

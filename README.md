@@ -126,6 +126,15 @@ Pauses the reveal at that point in the text. It is **direction-aware**:
 Waits apply only to `LEFT_TO_RIGHT` / `RIGHT_TO_LEFT` in-stagger (ignored for
 other staggers and for the out animation).
 
+### `[spd=multiplier]…[/spd]` — reveal speed
+Multiplies how fast the glyphs inside the region are revealed (and how fast each
+one animates). It needs a closing `[/spd]`:
+
+```
+"Normal [spd=3]super fast[/spd] normal [spd=0.5]slow[/spd]."
+```
+`[spd=2]` = twice as fast, `[spd=0.5]` = half speed. Regions can nest.
+
 ### Region tags — scope an ongoing effect
 Give an ongoing animation a `bbcode_tag` (e.g. `g`), then wrap part of the text:
 
@@ -151,10 +160,13 @@ show_now()             # snap visible (ongoing keeps running)
 hide_now()             # snap hidden
 stop()                 # freeze
 restart_ongoing()      # reset the loop clock
+pause(stop_ongoing := true)   # freeze the in/out animation (and ongoing by default)
+continue_play()        # resume from where pause() left off (alias: resume())
 
 is_playing_in() -> bool
 is_playing_out() -> bool
 is_holding() -> bool
+is_paused() -> bool
 glyph_count() -> int
 ```
 
